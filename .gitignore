@@ -1,0 +1,14 @@
+data/*
+!data/.gitkeep
+joblib/
+
+playground.py
+.ipynb_checkpoints/
+__pycache__/
+.idea/
+
+*.sublime-project
+*.sublime-workspace
+
+.env
+pyenv/
