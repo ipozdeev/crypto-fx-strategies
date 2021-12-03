@@ -63,7 +63,7 @@ def get_perpetual(mid=False) -> pd.DataFrame:
         with time zone-aware index
 
     """
-    data_path = "data/perp"
+    data_path = os.path.join(data_dir, "perp")
     data = pd.read_feather(f"{data_path}/perp-mba-1h-kraken.ftr")
 
     res = data \
@@ -87,7 +87,7 @@ def get_spot() -> pd.DataFrame:
     and 60 refers to the frequency of bars, in minutes. Save the files under
     "../data/spot" for the functions to access them.
     """
-    data_path = "data/spot"
+    data_path = os.path.join(data_dir, "spot")
     zips = [f for f in os.listdir(data_path) if f.endswith("zip")]
     columns = ["timestamp", "open", "high", "low", "close", "volume", "trades"]
 
