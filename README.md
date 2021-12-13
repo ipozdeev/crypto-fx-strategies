@@ -1,4 +1,4 @@
-# crypto fx strategies
+# fx strategies in cryptocurrency space
 
 (how) do strategies like carry and momentum work in the crypto universe?
 

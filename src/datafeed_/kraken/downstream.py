@@ -266,7 +266,7 @@ def get_spot_from_api(currency, start_dt, end_dt) -> pd.DataFrame:
     while t < end_dt:
         print(f"{currency} - {t}")
         # timestamp is in seconds
-        parameters = f"pair={currency}usd&since={t.timestamp()}"
+        parameters = f"pair={currency}usd&since={(t.timestamp()):.4f}"
         request_str = f"{ROOT_URL_SPOT}/{endpoint}?{parameters}"
 
         chunk_, t = _process_spot_api_call(request_str)
