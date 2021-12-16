@@ -1,23 +1,52 @@
 import re
+import time
+import zipfile
+from typing import Tuple, List
 import pandas as pd
 import datetime
 import os
-import time
 import requests
 from joblib import Memory
 
-from .setup import ROOT_URL_SPOT
+from ..utilities import aggregate_data
 
-from .downstream import get_perpetual_from_api, get_spot_from_api
+from .setup import ROOT_URL, ROOT_URL_PERP, ROOT_URL_SPOT
 
-data_dir = os.path.join(os.environ.get("PROJECT_ROOT"), "data/")
-memory = Memory(
-    cachedir=os.path.join(os.environ.get("PROJECT_ROOT"), "data")
-)
+data_dir = os.path.join(os.environ.get("PROJECT_ROOT"), "data")
+
+# cache; will use or create folder 'joblib'
+memory = Memory(cachedir=data_dir)
 
 
-def save_spot() -> None:
-    """Save spot prices of 5 cryptocurrencies from 2018-06."""
+def save_spot_from_ohlcv() -> None:
+    """Save spot prices from 1-min OHLCV data.
+
+    Wrapper around `get_spot_from_ohlcv` (loop over currencies) - do read its
+    docstring!
+
+    """
+    currencies = ["xbt", "bch", "xrp", "ltc", "eth"]
+
+    data = dict()
+
+    for c_ in currencies:
+        data[c_] = _get_spot_from_ohlcv(c_)
+
+    # concat everything and store in feather format
+    res = pd.concat(data, axis=0, names=["asset", "index"]) \
+        .reset_index(level="asset").reset_index(drop=True)
+
+    res.to_feather(os.path.join(data_dir, "prepared/kraken",
+                                "spot-close-kraken.ftr"))
+
+
+def save_spot_from_api() -> None:
+    """Save bid/ask spot prices using the API.
+
+    This breaks down because of an API issue: in some requests, there are
+    huge jumps in time.
+
+    """
     start_dt = pd.Timestamp("2018-06-01")
     end_dt = pd.Timestamp(datetime.date.today())
 
@@ -25,22 +54,27 @@ def save_spot() -> None:
 
     for c_ in ["xrp", "eth", "xbt", "bch", "ltc"]:
 
-        data_c = get_spot_from_api(c_, start_dt, end_dt)
+        data_c = _get_spot_from_api(c_, start_dt, end_dt)
 
         data[c_] = data_c
 
     data = pd.concat(data, axis=0, names=["asset", "index"]) \
         .reset_index(level="asset").reset_index(drop=True)
 
-    # save
-    data_path = os.path.join(os.environ.get("PROJECT_ROOT"), "data", "spot")
-    data.to_feather(os.path.join(data_path, "spot-mba-kraken.ftr"))
+    # save in feather format
+    data.to_feather(
+        os.path.join(data_dir, "prepared/spot/kraken",
+                     "spot-bidask-api-kraken.ftr")
+    )
 
 
-def update_spot() -> None:
-    """Update spot prices of 5 cryptocurrencies."""
-    data_path = os.path.join(os.environ.get("PROJECT_ROOT"), "data", "spot")
-    data_old = pd.read_feather(f"{data_path}/spot-mba-kraken.ftr")
+def update_spot_from_api() -> None:
+    """Update bid/ask spot prices using the API."""
+    path_to_ftr = os.path.join(data_dir, "prepared/spot/kraken")
+
+    data_old = pd.read_feather(
+        os.path.join(path_to_ftr, "spot-bidask-api-kraken.ftr")
+    )
 
     # those are the currencies to fetch data on
     currencies = data_old["asset"].unique()
@@ -55,7 +89,7 @@ def update_spot() -> None:
 
     data = dict()
     for c_ in currencies:
-        data_c = get_perpetual_from_api(c_, start_dt, end_dt)
+        data_c = _get_spot_from_api(c_, start_dt, end_dt)
         data[c_] = data_c
 
     data_new = pd.concat(data, axis=0, names=["asset", "index"]) \
@@ -65,87 +99,9 @@ def update_spot() -> None:
         .drop_duplicates(subset=["asset", "side", "timestamp"]) \
         .reset_index(drop=True)
 
-
-def save_spot_(currency, start_dt, end_dt):
-    """
-    """
-    # everything better be timestamps
-    start_dt = start_dt.timestamp()
-    end_dt = end_dt.timestamp()
-
-    # parameters
-    cols = ["price", "volume", "timestamp", "side"]
-    data_path = os.path.join(data_dir, "spot")
-    endpoint = "Trades"
-
-    res = []  # whole dataset
-    c_res = list()  # chunks of 1000000 rows
-
-    t = start_dt
-
-    while True:
-        print(f"timestamp: {datetime.datetime.fromtimestamp(t)}")
-        # request
-        parameters = f"pair={currency}usd&since={t}"
-        u = f"{ROOT_URL_SPOT}/{endpoint}?{parameters}"
-        resp = requests.get(u)
-
-        # convert to DataFrame
-        k = [k_ for k_ in resp.json()["result"].keys() if k_ != "last"][0]
-        chunk = pd.DataFrame.from_records(resp.json()["result"][k]) \
-            .iloc[:, :4]
-        c_res.append(chunk)
-
-        if (len(c_res) > 999) | (t > end_dt):
-            res_interm = pd.concat(c_res)
-            res_interm.columns = cols
-            res_interm = res_interm\
-                .sort_values(by=["timestamp", "side", "volume"])\
-                .drop_duplicates(subset=["timestamp", "side"], keep="last")\
-                .pivot(index="timestamp", columns="side", values="price")\
-                .astype(float)
-            res_interm.index = res_interm.index\
-                .map(datetime.datetime.fromtimestamp)
-
-            # nearest price
-            mid = res_interm \
-                .interpolate(method="nearest") \
-                .resample("1H", label="right").last() \
-                .mean(axis=1) \
-                .to_frame("mid")
-
-            # bid, ask
-            bidask = res_interm.copy()
-            bidask.index -= pd.to_timedelta("15T")
-            bidask = bidask.resample("30T", label="right").quantile(
-                [0.25, 0.75])
-            bidask = pd.concat(
-                (bidask.xs(0.25, axis=0, level=1).loc[:, "s"],
-                 bidask.xs(0.75, axis=0, level=1).loc[:, "b"]),
-                axis=1, keys=["bid", "ask"]
-            ).resample("1H").last()
-
-            mba = pd.concat((mid, bidask), axis=1).reset_index()
-
-            res.append(mba)
-
-            # cache
-            to_cache = pd.concat(res, ignore_index=True).reset_index(drop=True)
-            to_cache.to_feather(
-                f"{data_path}/spot-{currency}-kraken-cached.ftr"
-            )
-
-            c_res = list()
-
-        if int(t) > end_dt:
-            break
-
-        t = chunk.pivot(index=2, columns=3)[0].last_valid_index()
-
-        time.sleep(2)
-
-    pd.concat(res, ignore_index=True).reset_index(drop=True)\
-        .to_feather(f"{data_path}/spot-{currency}-kraken-cached.ftr")
+    data_upd.to_feather(
+        os.path.join(path_to_ftr, "spot-bidask-api-kraken.ftr")
+    )
 
 
 def save_perpetual_from_csv() -> None:
@@ -167,15 +123,16 @@ def save_perpetual_from_csv() -> None:
 
     Download all of them, saving to $PROJECT_ROOT/data/perp/
     """
-    data_path = os.path.join(data_dir, "perp")
+    data_src = os.path.join(data_dir, "raw/perpetual/kraken")
+    data_tgt = os.path.join(data_dir, "prepared/perpetual/kraken")
 
     # find all .csv (sometimes compressed as .zip)
-    fs = [f for f in os.listdir(data_path) if f.endswith(("csv", "zip"))]
+    fs = [f for f in os.listdir(data_src) if f.endswith(("csv", "zip"))]
 
     # process files in pairs
     months = sorted([re.search("[0-9]{4}-[0-9]{2}", f_).group() for f_ in fs])
 
-    data = list()
+    res = list()
 
     # function to parse one file, possibly a .zip
     @memory.cache
@@ -184,20 +141,20 @@ def save_perpetual_from_csv() -> None:
             if f_ == "matches_history_2020-10_rti.csv":
                 # this one is special somehow
                 res_ = pd.read_csv(
-                    f"{data_path}/{f_}",
+                    f"{data_src}/{f_}",
                     header=None, usecols=[1, 2, 3, 4, 5]
                 )
                 res_.columns = ["timestamp", "tradeable", "price", "size",
                                 "aggressor"]
             else:
                 res_ = pd.read_csv(
-                    f"{data_path}/{f_}",
+                    f"{data_src}/{f_}",
                     usecols=["timestamp", "tradeable", "price",
                              "size", "aggressor"]
                 )
         else:
             res_ = pd.read_csv(
-                f"{data_path}/{f_}", compression="zip",
+                f"{data_src}/{f_}", compression="zip",
                 sep="[,\t]",
                 usecols=["timestamp", "tradeable", "aggressor", "price",
                          "size"]
@@ -227,25 +184,21 @@ def save_perpetual_from_csv() -> None:
             .drop_duplicates(subset=["timestamp", "tradeable", "aggressor"],
                              keep="last")
 
-        # construct 10-min windows (centered on :00, :10 etc.)
-        data_.loc[:, "timestamp"] = pd.to_datetime(data_.loc[:, "timestamp"],
-                                                   utc=True)
-        data_.loc[:, "timestamp"] -= pd.to_timedelta("5T")
+        data_.loc[:, "timestamp"] = data_["timestamp"].map(pd.Timestamp)
 
-        # calculate size-weighted mean price in those windows
-        data_.insert(data_.shape[-1], "pq", data_["price"]*data_["size"])
-        data_agg = data_.set_index("timestamp").groupby(
-            [pd.Grouper(freq="10T", label="right"), "tradeable", "aggressor"],
-        ).sum()
-        price_ = data_agg["pq"] / data_agg["size"]
-        chunk = price_.rename("price").reset_index()
+        chunk = aggregate_data(data_, agg_freq="10T", offset_freq="5T",
+                               datetime_col="timestamp",
+                               objective_col="price", weight_col="size",
+                               other_cols=["tradeable", "aggressor"])
 
-        data.append(chunk)
+        res.append(chunk)
 
-    to_save = pd.concat(data, axis=0, ignore_index=True)
+    to_save = pd.concat(res, axis=0, ignore_index=True)
     to_save = to_save.drop_duplicates(
         subset=["aggressor", "timestamp", "tradeable"]
     )
+
+    # rename columns and map values
     to_save.insert(
         0, "side",
         to_save.pop("aggressor").map({"buyer": "ask", "seller": "bid"})
@@ -257,18 +210,18 @@ def save_perpetual_from_csv() -> None:
     )
 
     to_save.reset_index(drop=True) \
-        .to_feather(f"{data_path}/perp-mba-kraken.ftr")
+        .to_feather(f"{data_tgt}/perp-bidask-kraken.ftr")
 
 
-def update_perpetual() -> None:
+def update_perpetual_from_api() -> None:
     """Update feather with perpetual prices."""
     # fetch old data first
-    data_path = os.path.join(os.environ.get("PROJECT_ROOT"), "data", "perp")
+    path_to_ftr = os.path.join(data_dir, "prepared", "perpetual", "kraken")
 
-    if "perp-mba-kraken.ftr" not in os.listdir(data_path):
-        raise ValueError("make sure 'perp-mba-kraken.ftr' is in data/perp")
+    if "perp-bidask-kraken.ftr" not in os.listdir(path_to_ftr):
+        raise ValueError("make sure 'perp-bidask-kraken.ftr' is in data/perp")
 
-    data_old = pd.read_feather(f"{data_path}/perp-mba-kraken.ftr")
+    data_old = pd.read_feather(f"{path_to_ftr}/perp-bidask-kraken.ftr")
 
     # those are the currencies to fetch data on
     currencies = data_old["asset"].unique()
@@ -283,7 +236,7 @@ def update_perpetual() -> None:
 
     data = dict()
     for c_ in currencies:
-        data_c = get_perpetual_from_api(c_, start_dt, end_dt)
+        data_c = _get_perpetual_from_api(c_, start_dt, end_dt)
         data[c_] = data_c
 
     data_new = pd.concat(data, axis=0, names=["asset", "index"])\
@@ -294,6 +247,272 @@ def update_perpetual() -> None:
         .reset_index(drop=True)
 
     # save
-    data_upd.to_feather(os.path.join(data_path, "perp-mba-kraken.ftr"))
+    data_upd.to_feather(os.path.join(path_to_ftr, "perp-bidask-kraken.ftr"))
 
     return
+
+
+def save_funding_rates() -> None:
+    """Save abs and rel funding rates using the API.
+
+    Works via an API call to kraken's website.
+
+    The relative rate is the one displayed at the front end; the absolute
+    rate is calculated as (rel rate / price), denominated in the
+    cryprocurrency and to be used for accounting purposes.
+
+    Returns
+    -------
+    DataFrame
+        with time zone-aware index, containing absolute (in fractions of 1)
+        and relative funding rates, per hour.
+    """
+    endpoint = "historicalfundingrates"
+
+    res = dict()
+
+    for c in ["XBT", "BCH", "LTC", "ETH", "XRP"]:
+        # request
+        parameters = f"symbol=PI_{c}USD"
+        u = f"{ROOT_URL}/{endpoint}?{parameters}"
+        resp = requests.get(u)
+
+        # convert to DataFrame
+        chunk = pd.DataFrame.from_records(resp.json()["rates"])
+        chunk.index = chunk.pop("timestamp").map(pd.to_datetime)
+        chunk = chunk.rename(columns={"fundingRate": "absolute",
+                                      "relativeFundingRate": "relative"})
+        res[c] = chunk
+
+    res = pd.concat(res, axis=1, names=["asset", "which"])\
+        .stack(level=[0, 1]).rename("rate")\
+        .reset_index()
+
+    res.loc[:, "asset"] = res.loc[:, "asset"].str.lower()
+
+    res.to_feather(os.path.join(data_dir, "prepared/funding/kraken",
+                                "funding-r-kraken.ftr"))
+
+
+def _get_spot_from_ohlcv(currency) -> pd.DataFrame:
+    """Get spot ohlcvt data from .csv files saved from kraken.
+
+    The .csv files can be found on Kraken's Google Drive, link here:
+    https://support.kraken.com/hc/en-us/articles/360047124832-Downloadable-historical-OHLCVT-Open-High-Low-Close-Volume-Trades-data
+
+    Download a separate file for each currency of interest; files are in
+    format '<XXX>USD_TT.csv, where <XXX> is the 3-letter code, such as XBT,
+    and TT is the frequency of bars, in minutes. Save the files under
+    "../data/raw/spot/kraken" for the functions to access them.
+
+    This function uses 1-min close prices and volumes to aggregate to 10-min
+    intervals around 10-minute marks: this way, the value at :20 refers to
+    the volume-weighted average price over the :15-:25 interval. This is to
+    account for the uncertain execution times on the CEX when running
+    backtests.
+
+    Returns
+    -------
+    pandas.DataFrame
+        with columns 'timestamp' (UTC-aware Timestamp), 'price' (float)
+    """
+    data_src = os.path.join(data_dir, "raw/spot/kraken")
+
+    # detect the .zip file
+    z = [
+        f for f in os.listdir(data_src)
+        if f.endswith("zip") and f.startswith(currency.upper())
+    ][0]
+
+    zip_fname = f"{data_src}/{z}"
+    base_c = z.split("_")[0]
+    csv_fname = f"{base_c}USD_1.csv"
+
+    # unzip if not yet
+    with zipfile.ZipFile(zip_fname, mode='r') as uz:
+        uz.extract(member=csv_fname, path=data_src)
+
+    # read in chunks, columns are timestamp, price, volume
+    chunk = pd.read_csv(f"{data_src}/{csv_fname}",
+                        header=None,
+                        dtype={0: int, 6: int})
+    os.remove(f"{data_src}/{csv_fname}")
+
+    # rename cols from ordinal to meaningful, rows to Timestamp
+    columns = ["timestamp", "open", "high", "low", "close", "volume", "trades"]
+    chunk.columns = columns
+    chunk.loc[:, "timestamp"] = chunk["timestamp"]\
+        .map(lambda x: pd.Timestamp(x, unit="s", tz="UTC"))
+
+    res = aggregate_data(chunk, agg_freq="10T", offset_freq="5T",
+                         datetime_col="timestamp", objective_col="close",
+                         weight_col="volume")
+
+    return res
+
+
+def _process_perpetual_api_call(request_str) -> Tuple[List, pd.Timestamp]:
+    """Process result of one call to the perpetual prices API.
+
+    Parameters
+    ----------
+    request_str : str
+
+    Returns
+    -------
+    chunk : dict
+        of data
+    t_final : pd.Timestamp
+        tz-agnostic timestamp of the latest data point to use for further calls
+    """
+    response = requests.get(request_str).json()
+
+    chunk = []
+    timestamps = []
+
+    # each element is one execution: collect price, qty etc.
+    for e_ in response["elements"]:
+        exe = e_["event"]["Execution"]["execution"]
+        timestamp = exe["timestamp"]
+        price = exe["price"]
+        quantity = exe["quantity"]
+        side = exe["takerOrder"].get("direction")
+
+        chunk.append({"timestamp": timestamp, "price": price,
+                      "side": side, "quantity": quantity})
+
+        timestamps.append(timestamp)
+
+    # final time to start the next iteration
+    t_final = pd.Timestamp(max(timestamps), unit="ms")
+
+    return chunk, t_final
+
+
+@memory.cache
+def _get_perpetual_from_api(currency, start_dt, end_dt) -> pd.DataFrame:
+    """Get perpetual bid/ask prices using the API.
+
+    Assumes USD as the counter currency.
+
+    Pulls perpetual futures price data in chunks of size 1000, using the
+    last timestamp of each call as the new start date until `end_dt` is
+    reached. Then aggregates at the 10-min frequency using the same
+    methodology as `get_spot_from_ohlcv`.
+
+    Parameters
+    ----------
+    currency : str
+        3-letter ISO such as 'xrp', lowercase
+    start_dt : datetime-like
+    end_dt : datetime-like
+
+    Returns
+    -------
+    pandas.DataFrame
+        with columns 'timestamp' (tz-aware Timestamp), 'side' (bid/ask),
+        'price' (float)
+    """
+    # pair, e.g. ethusd; 'pi_' means perpetual contracts
+    pair = f"pi_{currency}usd"
+
+    # init time count
+    t = start_dt.tz_localize(None)
+    end_dt = end_dt.tz_localize(None)
+
+    res_raw = []
+
+    while t < end_dt:
+        print(f"timestamp: {t}")
+
+        # request string: timestamp on Kraken is in ms and must be integer!
+        parameters = f"since={(t.timestamp() * 1000):.0f}&sort=asc"
+        request_str = f"{ROOT_URL_PERP.format(pair)}?{parameters}"
+
+        chunk_, t = _process_perpetual_api_call(request_str)
+
+        res_raw += chunk_
+
+    # calculate price as weighted mean by buy/sell
+    data_df = pd.DataFrame.from_records(res_raw)
+    data_df.loc[:, ["price", "quantity"]] = \
+        data_df[["price", "quantity"]].astype(float)
+    data_df.loc[:, "timestamp"] = data_df["timestamp"]\
+        .map(lambda x: pd.Timestamp(x, unit="ms", tz="UTC"))
+    data_df.loc[:, "side"] = data_df["side"].map({"Buy": "ask", "Sell": "bid"})
+
+    # aggregate
+    res = aggregate_data(data_df, agg_freq="10T", offset_freq="5T",
+                         datetime_col="timestamp", objective_col="price",
+                         weight_col="quantity", other_cols=["side"])
+
+    return res
+
+
+def _process_spot_api_call(request_str) -> (pd.DataFrame, pd.Timestamp):
+    """Process result of one call to the spot prices API.
+
+    Parameters
+    ----------
+    request_str : str
+    """
+    resp = requests.get(request_str).json()
+
+    # convert to DataFrame
+    k = [k_ for k_ in resp["result"].keys() if k_ != "last"][0]
+
+    chunk = pd.DataFrame.from_records(resp["result"][k]).iloc[:, :4]
+
+    t_final = pd.Timestamp(chunk[2].max(), unit="s")
+
+    return chunk, t_final
+
+
+@memory.cache
+def _get_spot_from_api(currency, start_dt, end_dt) -> pd.DataFrame:
+    """Get spot prices of usd pairs from Kraken using API.
+
+    Introduces delay of 1.9 sec after each API call.
+
+    Parameters
+    ----------
+    currency : str
+        3-letter ISO, e.g. 'xrp'
+    start_dt : pd.Timestamp
+    end_dt : pd.Timestamp
+    """
+    # parameters
+    cols = ["price", "volume", "timestamp", "side"]
+    endpoint = "Trades"
+
+    t = start_dt.tz_localize(None)
+    end_dt = end_dt.tz_localize(None)
+
+    chunks = []
+
+    while t < end_dt:
+        print(f"{currency} - {t}")
+        # timestamp is in seconds
+        parameters = f"pair={currency}usd&since={(t.timestamp()):.4f}"
+        request_str = f"{ROOT_URL_SPOT}/{endpoint}?{parameters}"
+
+        chunk_, t = _process_spot_api_call(request_str)
+
+        # idle time
+        time.sleep(1.9)
+
+        chunks.append(chunk_)
+
+    data = pd.concat(chunks)
+    data.columns = cols
+    data.loc[:, ["price", "volume"]] = \
+        data[["price", "volume"]].astype(float)
+    data.loc[:, "timestamp"] = data["timestamp"] \
+        .map(lambda x: pd.Timestamp(x, unit="s", tz="UTC"))
+    data.loc[:, "side"] = data["side"].astype("category")
+
+    res = aggregate_data(data, agg_freq="10T", offset_freq="5T",
+                         datetime_col="timestamp", objective_col="price",
+                         weight_col="volume", other_cols=["side"])
+
+    return res
