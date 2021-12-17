@@ -329,12 +329,13 @@ def _get_spot_from_ohlcv(currency) -> pd.DataFrame:
     z = [
         f for f in os.listdir(data_src)
         if f.endswith("zip") and f.startswith(currency.upper())
-    ][0]
+    ]
 
-    if z not in os.listdir(data_src):
+    if len(z) < 1:
         raise FileNotFoundError("Download the .zip with spot data from Kraken "
                                 "to data/raw/kraken first!")
 
+    z = z[0]
     zip_fname = f"{data_src}/{z}"
     base_c = z.split("_")[0]
     csv_fname = f"{base_c}USD_1.csv"
