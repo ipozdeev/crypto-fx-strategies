@@ -49,7 +49,17 @@ def get_spot(which="close"):
 
 
 def get_funding_rates() -> pd.DataFrame:
-    """Get abs and rel funding rates."""
+    """Get abs and rel funding rates.
+
+    with time zone-aware index, containing absolute (in fractions of 1)
+    and relative funding rates, per hour
+
+    columns:
+        'timestamp' (pd.Timestamp, tz-aware),
+        'which' (str, one of 'relative', 'absolute'),
+        'asset' (str, 3-letter iso e.g. 'xrp'),
+        'rate' (float)
+    """
     data_path = os.path.join(data_dir, "prepared/funding/kraken")
     res = pd.read_feather(os.path.join(data_path, "funding-r-kraken.ftr"))
 

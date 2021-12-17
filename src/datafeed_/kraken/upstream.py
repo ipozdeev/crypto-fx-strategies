@@ -132,6 +132,12 @@ def save_perpetual_from_csv() -> None:
     # process files in pairs
     months = sorted([re.search("[0-9]{4}-[0-9]{2}", f_).group() for f_ in fs])
 
+    if len(months) < 1:
+        raise FileNotFoundError(
+            "No files of name 'matches_history_yyyy-mm...' have been "
+            "found in 'data/raw/perpetual/kraken'"
+        )
+
     res = list()
 
     # function to parse one file, possibly a .zip
@@ -261,11 +267,12 @@ def save_funding_rates() -> None:
     rate is calculated as (rel rate / price), denominated in the
     cryprocurrency and to be used for accounting purposes.
 
-    Returns
-    -------
-    DataFrame
-        with time zone-aware index, containing absolute (in fractions of 1)
-        and relative funding rates, per hour.
+    columns:
+        'timestamp' (pd.Timestamp, tz-aware),
+        'which' (str, one of 'relative', 'absolute'),
+        'asset' (str, 3-letter iso e.g. 'xrp'),
+        'rate' (float)
+
     """
     endpoint = "historicalfundingrates"
 
@@ -323,6 +330,10 @@ def _get_spot_from_ohlcv(currency) -> pd.DataFrame:
         f for f in os.listdir(data_src)
         if f.endswith("zip") and f.startswith(currency.upper())
     ][0]
+
+    if z not in os.listdir(data_src):
+        raise FileNotFoundError("Download the .zip with spot data from Kraken "
+                                "to data/raw/kraken first!")
 
     zip_fname = f"{data_src}/{z}"
     base_c = z.split("_")[0]
