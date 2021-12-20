@@ -7,6 +7,7 @@ import datetime
 import os
 import requests
 from joblib import Memory
+import logging
 
 from ..utilities import aggregate_data
 
@@ -15,7 +16,9 @@ from .setup import ROOT_URL, ROOT_URL_PERP, ROOT_URL_SPOT
 data_dir = os.path.join(os.environ.get("PROJECT_ROOT"), "data")
 
 # cache; will use or create folder 'joblib'
-memory = Memory(cachedir=data_dir)
+memory = Memory(cachedir=data_dir, verbose=False)
+
+logger = logging.getLogger(__name__)
 
 
 def save_spot_from_ohlcv() -> None:
@@ -30,14 +33,17 @@ def save_spot_from_ohlcv() -> None:
     data = dict()
 
     for c_ in currencies:
+        logger.info(f"saving spot rates for {c_}...")
         data[c_] = _get_spot_from_ohlcv(c_)
 
     # concat everything and store in feather format
     res = pd.concat(data, axis=0, names=["asset", "index"]) \
         .reset_index(level="asset").reset_index(drop=True)
 
-    res.to_feather(os.path.join(data_dir, "prepared/kraken",
-                                "spot-close-kraken.ftr"))
+    path_to_out = os.path.join(data_dir, "prepared/spot/kraken",
+                               "spot-close-kraken.ftr")
+    res.to_feather(path_to_out)
+    logger.info(f"spot rates saved to {path_to_out}")
 
 
 def save_spot_from_api() -> None:
@@ -123,6 +129,8 @@ def save_perpetual_from_csv() -> None:
 
     Download all of them, saving to $PROJECT_ROOT/data/perp/
     """
+    logger.info("saving perpetual prices...")
+
     data_src = os.path.join(data_dir, "raw/perpetual/kraken")
     data_tgt = os.path.join(data_dir, "prepared/perpetual/kraken")
 
@@ -171,7 +179,10 @@ def save_perpetual_from_csv() -> None:
         return res_
 
     # take pairs of files, parse, concat, resample
+    logger.info("files found, starting iteration over month-pairs...")
     for m1, m2 in zip(months[:-1], months[1:]):
+
+        logger.info(f"{m1} & {m2}")
 
         f1 = [f_ for f_ in fs if str(m1) in f_][0]
         f2 = [f_ for f_ in fs if str(m2) in f_][0]
@@ -215,8 +226,10 @@ def save_perpetual_from_csv() -> None:
             .str.lower()
     )
 
-    to_save.reset_index(drop=True) \
-        .to_feather(f"{data_tgt}/perp-bidask-kraken.ftr")
+    path_to_out = f"{data_tgt}/perp-bidask-kraken.ftr"
+
+    to_save.reset_index(drop=True).to_feather(path_to_out)
+    logger.info(f"perpetual prices saved to {path_to_out}")
 
 
 def update_perpetual_from_api() -> None:
@@ -274,11 +287,15 @@ def save_funding_rates() -> None:
         'rate' (float)
 
     """
+    logger.info("saving funding rates...")
+
     endpoint = "historicalfundingrates"
 
     res = dict()
 
     for c in ["XBT", "BCH", "LTC", "ETH", "XRP"]:
+        logger.info(f"saving funding rates for {c}...")
+
         # request
         parameters = f"symbol=PI_{c}USD"
         u = f"{ROOT_URL}/{endpoint}?{parameters}"
@@ -297,8 +314,10 @@ def save_funding_rates() -> None:
 
     res.loc[:, "asset"] = res.loc[:, "asset"].str.lower()
 
-    res.to_feather(os.path.join(data_dir, "prepared/funding/kraken",
-                                "funding-r-kraken.ftr"))
+    path_to_out = os.path.join(data_dir, "prepared/funding/kraken",
+                               "funding-r-kraken.ftr")
+    res.to_feather(path_to_out)
+    logger.info(f"funding rates saved to {path_to_out}")
 
 
 def _get_spot_from_ohlcv(currency) -> pd.DataFrame:
