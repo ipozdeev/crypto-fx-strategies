@@ -14,7 +14,7 @@ python -m unittest discover
 **first**, environment variable `PROJECT_ROOT` must point to the project folder; 
 you can set it in the .env file, and python will rely on `python-dotenv` to set it.
 
-**second**, `requirements.txt` keeps the environment requirements; you can run 
+**second**, the necessary virtual environment can be created from `requirements.txt`: 
 ```commandline
 python3 -m venv pyenv; source pyenv/bin/activate; pip install -r requirements.txt
 ```
@@ -33,7 +33,7 @@ make data_dir_layout
 [spot](https://support.kraken.com/hc/en-us/articles/360047124832-Downloadable-historical-OHLCVT-Open-High-Low-Close-Volume-Trades-data) 
 and [perpetual futures](https://support.kraken.com/hc/en-us/articles/360022835871-Historical-Data) 
 prices from Kraken and place them into `data/raw/spot/kraken/` and `data/raw/perpetual/kraken/` respectively; 
-after this the following should work:
+after this the following should work when run in the command line:
 ```commandline
 python src/organize_data.py
 ```
