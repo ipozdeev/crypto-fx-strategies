@@ -4,6 +4,8 @@
 
 go to [walkthrough](./walkthrough.ipynb) for results.
 
+![crypto carry performance](output/figures/carry-pnl.png "crypto carry performance")
+
 ## requirements
 there are some tests which will be passed once the rest of this section has been 
 dealt with:
