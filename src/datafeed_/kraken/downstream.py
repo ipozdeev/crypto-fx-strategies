@@ -43,7 +43,7 @@ def get_spot(which="close"):
     else:
         raise NotImplementedError
 
-    res = res.pivot("timestamp", "asset", "price")
+    res = res.pivot(index="timestamp", columns="asset", values=which)
 
     return res
 

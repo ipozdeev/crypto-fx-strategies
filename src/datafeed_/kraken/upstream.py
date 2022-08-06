@@ -201,7 +201,8 @@ def save_perpetual_from_csv() -> None:
             .drop_duplicates(subset=["timestamp", "tradeable", "aggressor"],
                              keep="last")
 
-        data_.loc[:, "timestamp"] = data_["timestamp"].map(pd.Timestamp)
+        data_.loc[:, "timestamp"] = \
+            data_["timestamp"].map(pd.Timestamp).dt.tz_localize("UTC")
 
         chunk = aggregate_data(data_, agg_freq="10T", offset_freq="5T",
                                datetime_col="timestamp",
