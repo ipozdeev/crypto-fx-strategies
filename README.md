@@ -1,6 +1,14 @@
 # fx strategies in cryptocurrency space
 
-(how) do strategies like carry and momentum work in the crypto universe?
+(how) does carry trade work in the crypto universe?
+
+I investigate if the simple carry trade strategy is implementable in the 
+cryptocurrency space and provide instructions and fully replicable code to 
+replicate my findings; using data from the Kraken exchange, I show that sorting 
+cryptocurrencies on the analogue of the fiat interest rate results in a 
+statistically and economically meaningful excess returns and Sharpe ratios; 
+my finding thus adds another asset to the universe of those where the carry trade 
+anomaly is pronounced.
 
 go to [walkthrough](./walkthrough.ipynb) for results.
 
@@ -31,10 +39,29 @@ python can find it.
 make data_dir_layout
 ```
 
-**fifth**, you have to download 
-[spot](https://support.kraken.com/hc/en-us/articles/360047124832-Downloadable-historical-OHLCVT-Open-High-Low-Close-Volume-Trades-data) 
-and [perpetual futures](https://support.kraken.com/hc/en-us/articles/360022835871-Historical-Data) 
-prices from Kraken and place them into `data/raw/spot/kraken/` and `data/raw/perpetual/kraken/` respectively; 
+**fifth**, you have to download
+spot and perpetual futures prices from Kraken: 
+- download the five [.zip archives](https://support.kraken.com/hc/en-us/articles/360047124832-Downloadable-historical-OHLCVT-Open-High-Low-Close-Volume-Trades-data) 
+of spot prices from 'Separate ZIP files' &ndash; one for each cryptocurrency &ndash; and place them in `data/raw/spot/kraken/`;
+- download all .csv.zip archives following the link [here](https://support.kraken.com/hc/en-us/articles/360022835871-Historical-Data)
+and place them in`data/raw/perpetual/kraken/`;
+
+```commandline
+$ ls data/raw/spot/kraken
+BCH_OHLCT.zip
+ETH_OHLCT.zip
+LTC_OHLCT.zip
+XBT_OHLCT.zip
+XRP_OHLCT.zip
+```
+
+```commandline
+$ ls data/raw/perpetual/kraken
+matches_history_2018-01.csv
+matches_history_2018-02.csv
+...
+```
+
 after this the following should work when run in the command line:
 ```commandline
 python src/organize_data.py
