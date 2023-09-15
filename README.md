@@ -2,13 +2,7 @@
 
 (how) does carry trade work in the crypto universe?
 
-I investigate if the simple carry trade strategy is implementable in the 
-cryptocurrency space and provide instructions and fully replicable code to 
-replicate my findings; using data from the Kraken exchange, I show that sorting 
-cryptocurrencies on the analogue of the fiat interest rate results in a 
-statistically and economically meaningful excess returns and Sharpe ratios; 
-my finding thus adds another asset to the universe of those where the carry trade 
-anomaly is pronounced.
+I investigate if the simple carry trade strategy is implementable in the cryptocurrency space and provide instructions and fully replicable code to replicate my findings; using data from the Kraken exchange, I show that sorting cryptocurrencies on the analogue of the fiat interest rate results in a statistically and economically meaningful excess returns and Sharpe ratios; my finding thus adds another asset to the universe of those where the carry trade anomaly is pronounced.
 
 go to [walkthrough](./walkthrough.ipynb) for results.
 
@@ -17,7 +11,7 @@ go to [walkthrough](./walkthrough.ipynb) for results.
 ## requirements
 there are some tests which will be passed once the rest of this section has been 
 dealt with:
-```commandline
+```bash
 python -m unittest discover
 ```
 
@@ -25,17 +19,17 @@ python -m unittest discover
 you can set it in the .env file, and python will rely on `python-dotenv` to set it.
 
 **second**, the necessary virtual environment can be created from `requirements.txt`: 
-```commandline
-python3 -m venv pyenv; source pyenv/bin/activate; pip install -r requirements.txt
+```bash
+python3 -m venv .venv; source .venv/bin/activate; pip install -r requirements.txt
 ```
-to create a virtual environment in `$PROJECT_ROOT/pyenv` and install all packages;
+to create a virtual environment in `$PROJECT_ROOT/.venv` and install all packages;
 please don't forget to activate it every time!
 
 **third**, package [foolbox](https://github.com/ipozdeev/foolbox) must be downloaded to where 
 python can find it.
 
 **fourth**, a certain data folder layout must be adhered to; you can create it with
-```commandline
+```bash
 make data_dir_layout
 ```
 
@@ -46,7 +40,7 @@ of spot prices from 'Separate ZIP files' &ndash; one for each cryptocurrency &nd
 - download all .csv.zip archives following the link [here](https://support.kraken.com/hc/en-us/articles/360022835871-Historical-Data)
 and place them in`data/raw/perpetual/kraken/`;
 
-```commandline
+```bash
 $ ls data/raw/spot/kraken
 BCH_OHLCT.zip
 ETH_OHLCT.zip
@@ -55,7 +49,7 @@ XBT_OHLCT.zip
 XRP_OHLCT.zip
 ```
 
-```commandline
+```bash
 $ ls data/raw/perpetual/kraken
 matches_history_2018-01.csv
 matches_history_2018-02.csv
@@ -63,8 +57,8 @@ matches_history_2018-02.csv
 ```
 
 after this the following should work when run in the command line:
-```commandline
-python src/organize_data.py
+```bash
+make prepare_data
 ```
 
 this will create several .ftr (feather) data files in `data/prepared/spot(perpetual)/kraken/` 
