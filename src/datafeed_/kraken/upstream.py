@@ -151,24 +151,19 @@ def save_perpetual_from_csv() -> None:
     # function to parse one file, possibly a .zip
     @memory.cache
     def parser(f_) -> pd.DataFrame:
-        if "csv" in f_:
-            if f_ == "matches_history_2020-10_rti.csv":
-                # this one is special somehow
-                res_ = pd.read_csv(
-                    f"{data_src}/{f_}",
-                    header=None, usecols=[1, 2, 3, 4, 5]
-                )
-                res_.columns = ["timestamp", "tradeable", "price", "size",
-                                "aggressor"]
-            else:
-                res_ = pd.read_csv(
-                    f"{data_src}/{f_}",
-                    usecols=["timestamp", "tradeable", "price",
-                             "size", "aggressor"]
-                )
+        if f_ == "matches_history_2020-10_rti.csv.zip":
+            # this one is special somehow
+            res_ = pd.read_csv(
+                f"{data_src}/{f_}",
+                compression="zip",
+                header=None, usecols=[1, 2, 3, 4, 5]
+            )
+            res_.columns = ["timestamp", "tradeable", "price", "size",
+                            "aggressor"]
         else:
             res_ = pd.read_csv(
-                f"{data_src}/{f_}", compression="zip",
+                f"{data_src}/{f_}",
+                compression="zip",
                 sep="[,\t]",
                 usecols=["timestamp", "tradeable", "aggressor", "price",
                          "size"]
@@ -202,7 +197,7 @@ def save_perpetual_from_csv() -> None:
                              keep="last")
 
         data_.loc[:, "timestamp"] = \
-            data_["timestamp"].map(pd.Timestamp).dt.tz_localize("UTC")
+            pd.to_datetime(data_["timestamp"]).dt.tz_localize("UTC")
 
         chunk = aggregate_data(data_, agg_freq="10T", offset_freq="5T",
                                datetime_col="timestamp",
