@@ -1,7 +1,7 @@
 import os
 from unittest import TestCase
 
-from src.setup import *
+from src.config import *
 from src.datafeed_.kraken.downstream import *
 
 

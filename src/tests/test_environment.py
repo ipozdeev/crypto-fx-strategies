@@ -2,7 +2,7 @@ import os
 import sys
 from unittest import TestCase
 
-from src.setup import *
+from src.config import *
 
 
 class TestEnvironment(TestCase):
